@@ -22,6 +22,12 @@ limitations under the License.
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <fstream>
+#include <iostream>
+#include <iomanip>
+#include <sstream>
+#include <chrono>
+#include <ctime>  
 
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
@@ -369,10 +375,31 @@ template <typename Gradient, typename BackwardFunction, typename TapeTensor>
 bool GradientTape<Gradient, BackwardFunction, TapeTensor>::ShouldRecord(
     gtl::ArraySlice<int64> tensor_ids,
     gtl::ArraySlice<tensorflow::DataType> dtypes) {
+  //----------
+  std::ofstream outfile;
+  outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+  outfile << "----\nGradientTape::ShouldRecord\n";
+  outfile.close();
+  //----------
   CHECK_EQ(tensor_ids.size(), dtypes.size());
+  //----------
+  outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+  outfile << "pass checks\n";
+  outfile << "tensor_tape now:\n";
+  for (auto t : tensor_tape_)
+    outfile << t.first << '\n';
+  outfile << "tensors to check:\n";
+  for (auto id : tensor_ids)
+    outfile << id << '\n';
+
+  outfile.close();
+  //----------
   for (int i = 0; i < tensor_ids.size(); ++i) {
     if (tensor_tape_.find(tensor_ids[i]) != tensor_tape_.end()) {
       if (IsDtypeTrainable(dtypes[i])) {
+        outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+        outfile << "tensor " << tensor_ids[i] <<" was found in grad tape\n";
+        outfile.close();
         return true;
       }
     }
@@ -384,6 +411,17 @@ template <typename Gradient, typename BackwardFunction, typename TapeTensor>
 void GradientTape<Gradient, BackwardFunction, TapeTensor>::Watch(
     int64 tensor_id) {
   tensor_tape_.emplace(tensor_id, -1);
+  //----------------------
+  std::ofstream outfile;
+  outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+  outfile << "------------------\nGradientTape::Watch\n";
+  outfile << "Add tensor " << tensor_id << " to tensor_tape_\n";
+  outfile << "tensor_tape now:\n";
+  for (auto t : tensor_tape_)
+    outfile << t.first << '\n';
+
+  outfile.close();
+  //--------------------
 }
 
 template <typename Gradient, typename BackwardFunction, typename TapeTensor>

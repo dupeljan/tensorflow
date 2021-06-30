@@ -16,6 +16,12 @@ limitations under the License.
 #include <atomic>
 #include <cstring>
 #include <unordered_map>
+#include <fstream>
+#include <iostream>
+#include <iomanip>
+#include <sstream>
+#include <chrono>
+#include <ctime>  
 
 #include "absl/strings/str_cat.h"
 #include "absl/types/variant.h"
@@ -1098,15 +1104,38 @@ static tensorflow::int64 MakeInt(PyObject* integer) {
 }
 
 static tensorflow::int64 FastTensorId(PyObject* tensor) {
+    std::ofstream outfile;
+
+    outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+    outfile << "----------\n" << "FastTensorID\n";
+    outfile.close();
   if (EagerTensor_CheckExact(tensor)) {
+    outfile << "EagerTensor_checkExact == true\n";
     return PyEagerTensor_ID(tensor);
   }
+
+
+    outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+    outfile << "Not eager tensor detected\n";
+    outfile.close();
+
+
+
+  
   PyObject* id_field = PyObject_GetAttrString(tensor, "_id");
   if (id_field == nullptr) {
     return -1;
   }
   tensorflow::int64 id = MakeInt(id_field);
+  //------------------------
+    outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+    outfile << "id before Py_DECREF " << id << '\n';
+  //------------------------
   Py_DECREF(id_field);
+  //------------------------
+    outfile << "id after Py_DECREF" << id << '\n';
+    outfile.close();
+  //------------------------
   return id;
 }
 
@@ -1461,6 +1490,13 @@ class VariableWatcher {
     }
     tensorflow::int64 id = FastTensorId(handle.get());
 
+    std::ofstream outfile;
+
+    outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+    outfile << "----------\n" << "VariableWatcher::WatchVariable\n";
+    outfile << "tensor id: " << id << " added to watched_variables_\n";
+    outfile.close();
+
     tensorflow::mutex_lock l(watched_variables_mu_);
     auto insert_result = watched_variables_.emplace(id, v);
 
@@ -1526,9 +1562,26 @@ class GradientTape
   void WatchVariable(PyObject* v) {
     tensorflow::int64 id = variable_watcher_.WatchVariable(v);
 
+    std::ofstream outfile;
+
+    outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+    outfile << "----------------------------------------\n" << "GradientTape::WatchVariable\n";
+    outfile << "tensor id: " << id << "\n";
+    outfile.close();
+    
+
     if (!PyErr_Occurred()) {
       this->Watch(id);
+      outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+      outfile << "Successfully watch variable\n";
+      outfile.close();
     }
+    else{
+      outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+      outfile << "Error occured\n";
+      outfile.close();
+    }
+
   }
 
   PyObject* GetVariablesAsPyTuple() {
@@ -1998,6 +2051,29 @@ PyObject* TFE_Py_TapeSetPossibleGradientTypes(PyObject* tensors) {
     return nullptr;
   }
 
+    // DUMP TO FILE
+    //
+    {
+      std::ofstream outfile;
+
+      auto time = std::chrono::system_clock::now();
+      std::time_t end_time = std::chrono::system_clock::to_time_t(time);
+      outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+      outfile << std::ctime(&end_time) << "-----------------------------------------------------------------\n";
+      outfile << "TFE_Py_TapeSetPossibleGradientTypes\n";
+      outfile << "tensors id's:\n";
+      for(auto id: tensor_ids)
+        outfile << id << '\n';
+
+      outfile << "Could backprop? " << CouldBackprop() << "\n";
+      outfile << "Could forwardprop? " << CouldForwardprop() << "\n";
+      outfile.close();
+    }
+    bool some_tape_changed_in_backprop(false);
+    bool some_tape_changed_in_forwardprop(false);
+    int count_of_tapes = 0;
+    //
+    //
   // If there is a persistent tape watching, or if there are multiple tapes
   // watching, we'll return immediately indicating that higher-order tape
   // gradients are possible.
@@ -2005,12 +2081,14 @@ PyObject* TFE_Py_TapeSetPossibleGradientTypes(PyObject* tensors) {
   if (CouldBackprop()) {
     auto tape_set = *GetTapeSet();
     for (TFE_Py_Tape* tape : tape_set) {
+      count_of_tapes++;
       if (tape->tape->ShouldRecord(tensor_ids, dtypes)) {
         if (tape->tape->IsPersistent() || some_tape_watching) {
           // Either this is the second tape watching, or this tape is
           // persistent: higher-order gradients are possible.
           return GetPythonObjectFromInt(2);
         }
+        some_tape_changed_in_backprop = true;
         some_tape_watching = true;
       }
     }
@@ -2025,10 +2103,23 @@ PyObject* TFE_Py_TapeSetPossibleGradientTypes(PyObject* tensors) {
           // forward-mode.
           return GetPythonObjectFromInt(2);
         }
+        some_tape_changed_in_forwardprop = true;
         some_tape_watching = true;
       }
     }
   }
+    {
+      std::ofstream outfile;
+
+      auto time = std::chrono::system_clock::now();
+      std::time_t end_time = std::chrono::system_clock::to_time_t(time);
+      outfile.open("/tmp/log_grad_tape.txt", std::ios_base::app); 
+      outfile << "Changed in backprop? " << some_tape_changed_in_backprop << "\n";
+      outfile << "Changed in forwardprop? " << some_tape_changed_in_forwardprop << "\n";
+      outfile << "Count of tapes:" << count_of_tapes << "\n";
+      outfile << "------------------------------------------------------------------------\n";
+      outfile.close();
+    }
   if (some_tape_watching) {
     // There's exactly one non-persistent tape. The user can request first-order
     // gradients but won't be able to get higher-order tape gradients.
