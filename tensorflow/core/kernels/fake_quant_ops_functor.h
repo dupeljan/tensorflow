@@ -17,6 +17,10 @@ limitations under the License.
 #define TENSORFLOW_CORE_KERNELS_FAKE_QUANT_OPS_FUNCTOR_H_
 
 #include <tuple>
+#include <fstream>
+#include <iostream>
+#include <iomanip>
+#include <sstream>
 
 #define EIGEN_STACK_ALLOCATION_LIMIT 0
 #define EIGEN_USE_THREADS
@@ -91,6 +95,18 @@ struct FakeQuantWithMinMaxArgsFunctor {
 
     auto clamped = inputs.cwiseMin(nudged_max).cwiseMax(nudged_min);
     auto clamped_shifted = clamped - nudged_min;
+    // DUMP TO FILE
+    //
+    std::ofstream outfile;
+
+    outfile.open("/tmp/log_FakeQuantWithMinMaxArgsFunctor.txt", std::ios_base::app); 
+    outfile << "------------\n";
+    outfile << "quant_min " << quant_min << " quant_max " << quant_max << '\n';
+    outfile << "Clamped shifted: " << clamped_shifted << "\n";
+    outfile << "clamped_shifted * inv_nudged_scale + 0.5f " << clamped_shifted * inv_nudged_scale + 0.5f << "\n";
+    outfile.close();
+    //
+    //
     outputs.device(d) =
         (clamped_shifted * inv_nudged_scale + 0.5f).floor() * nudged_scale +
         nudged_min;
@@ -142,6 +158,18 @@ struct FakeQuantWithMinMaxVarsFunctor {
 
     const auto clamped = inputs.cwiseMin(nudged_max).cwiseMax(nudged_min);
     const auto clamped_shifted = clamped - nudged_min;
+    // DUMP TO FILE
+    //
+    std::ofstream outfile;
+
+    outfile.open("/tmp/log_FakeQuantWithMinMaxVarsFunctor.txt", std::ios_base::app); 
+    outfile << "------------\n";
+    outfile << "quant_min " << quant_min << " quant_max " << quant_max << '\n';
+    outfile << "Clamped shifted: " << clamped_shifted << "\n";
+    outfile << "clamped_shifted / nudged_scale_repl + 0.5f " << clamped_shifted / nudged_scale_repl + 0.5f << "\n";
+    outfile.close();
+    //
+    //
     outputs.device(d) = (clamped_shifted / nudged_scale_repl + 0.5f).floor() *
                             nudged_scale_repl +
                         nudged_min;
@@ -200,6 +228,15 @@ struct FakeQuantWithMinMaxVarsPerChannelFunctor {
   void operator()(const Device& d, TTypes<float>::ConstMatrix inputs,
                   ConstVec<float> min, ConstVec<float> max, const int quant_min,
                   const int quant_max, TTypes<float>::Matrix outputs) {
+    // DUMP TO FILE
+    //
+    std::ofstream outfile;
+
+    outfile.open("/tmp/log_FakeQuantWithMinMaxVarsPerChannelFunctor.txt", std::ios_base::app); 
+    outfile << "------------\n";
+    outfile << "quant_min " << quant_min << " quant_max " << quant_max << '\n';
+    //
+    //
     for (Index i = 0; i < min.size(); ++i) {
       const float min_val = min(i);
       const float max_val = max(i);
@@ -216,10 +253,24 @@ struct FakeQuantWithMinMaxVarsPerChannelFunctor {
           inputs.chip<1>(i).cwiseMin(nudged_max).cwiseMax(nudged_min);
       const auto clamped_shifted = clamped - nudged_min;
 
+      //
+      //
+      outfile << "ch " << i << "\n";
+      outfile << "Clamped " << clamped << "\n";
+      outfile << "Clamped shifted: " << clamped_shifted << "\n";
+      outfile << "min_val " << min_val <<"\nmax_val " << max_val << "\n";
+      outfile << "nudge scale " << nudged_scale <<"\nnudge min " << nudged_min << "\nnudged max " << nudged_max << "\n";
+      auto round_arg = clamped_shifted / nudged_scale + 0.5f;
+      outfile << "clamped_shifted / nudged_scale + 0.5f " << std::setprecision(24) << std::scientific << round_arg  << "\n";
+      outfile << "|.floor() " << round_arg.floor() << "\n";
+      //
+      //
       outputs.chip<1>(i).device(d) =
           (clamped_shifted / nudged_scale + 0.5f).floor() * nudged_scale +
           nudged_min;
     }
+    
+    outfile.close();
   }
 };
 
